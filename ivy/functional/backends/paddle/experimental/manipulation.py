@@ -311,6 +311,10 @@ def fliplr(
     return paddle.flip(m, axis=1)
 
 
+@with_unsupported_dtypes(
+    {"2.6.0 and below": ("bfloat16", "float16")},
+    backend_version,
+)
 def i0(
     x: paddle.Tensor,
     /,
@@ -594,6 +598,14 @@ def expand(
     copy: Optional[bool] = None,
     out: Optional[paddle.Tensor] = None,
 ) -> paddle.Tensor:
+    shape = list(shape)
+    n_extra_dims = len(shape) - x.ndim
+    if n_extra_dims > 0:
+        with ivy.ArrayMode(False):
+            x = paddle_backend.expand_dims(x, tuple(range(n_extra_dims)))
+    for i, dim in enumerate(shape):
+        if dim < 0:
+            shape[i] = x.shape[i]
     return paddle_backend.broadcast_to(x, shape)
 
 
@@ -908,12 +920,26 @@ put_along_axis.partial_mixed_handler = lambda *args, mode="assign", **kwargs: mo
 ]
 
 
+@with_supported_dtypes(
+    {
+        "2.6.0 and below": (
+            "int32",
+            "int64",
+            "float64",
+            "complex128",
+            "float32",
+            "complex64",
+            "bool",
+        )
+    },
+    backend_version,
+)
 @handle_out_argument
 def unflatten(
     x: paddle.Tensor,
     /,
-    dim: int = 0,
     shape: Tuple[int] = None,
+    dim: int = 0,
     *,
     out: Optional[paddle.Tensor] = None,
 ) -> paddle.Tensor:
