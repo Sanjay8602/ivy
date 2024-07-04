@@ -770,7 +770,10 @@ class Tensor:
         new_shape = list(self.shape)
         num_slices = (self.shape[dimension] - size) // step + 1
         new_shape[dimension] = num_slices
-        new_shape.insert(dimension + 1, size)
+        if dimension == -1:
+            new_shape.insert(dimension, size)
+        else:
+            new_shape.insert(dimension + 1, size)
         reshaped = stacked.reshape(new_shape)
         dims = list(range(len(stacked.shape)))
         dims[-2], dims[-1] = dims[-1], dims[-2]
@@ -1062,13 +1065,17 @@ class Tensor:
         return torch_frontend.acosh(self)
 
     def masked_fill(self, mask, value):
+        dtype = ivy.as_native_dtype(self.dtype)
         return torch_frontend.tensor(
-            torch_frontend.where(mask, value, self), dtype=self.dtype
+            ivy.astype(torch_frontend.where(mask, value, self), dtype)
         )
 
     def masked_fill_(self, mask, value):
         self.ivy_array = self.masked_fill(mask, value).ivy_array
         return self
+
+    def masked_select(self, mask):
+        return torch_frontend.masked_select(self, mask)
 
     @with_unsupported_dtypes({"2.2 and below": ("float16", "bfloat16")}, "torch")
     def index_add_(self, dim, index, source, *, alpha=1):
@@ -1431,7 +1438,12 @@ class Tensor:
 
     def item(self):
         if all(dim == 1 for dim in self.shape):
-            return self.ivy_array.to_scalar()
+            if ivy.current_backend_str() == "tensorflow":
+                import tensorflow as tf
+
+                return tf.squeeze(self.ivy_array.data)
+            else:
+                return self.ivy_array.to_scalar()
         else:
             raise ValueError(
                 "only one element tensors can be converted to Python scalars"
@@ -1830,6 +1842,9 @@ class Tensor:
         {"2.2 and below": ("float32", "float64", "int32", "int64")}, "torch"
     )
     def scatter_(self, dim, index, src, *, reduce=None):
+        if not isinstance(src, torch_frontend.Tensor):
+            src = torch_frontend.tensor(src, dtype=self.dtype)
+
         if reduce is None:
             reduce = "replace"
         else:
@@ -1885,7 +1900,18 @@ class Tensor:
         ).ivy_array
         return self
 
-    @with_unsupported_dtypes({"2.2 and below": ("bfloat16", "float16")}, "torch")
+    @with_supported_dtypes(
+        {
+            "2.2 and below": (
+                "float32",
+                "float64",
+                "complex32",
+                "complex64",
+                "complex128",
+            )
+        },
+        "torch",
+    )
     def cholesky(self, upper=False):
         return torch_frontend.cholesky(self, upper=upper)
 
